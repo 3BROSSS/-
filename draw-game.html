@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 繪圖工作室大亨 - 模擬經營遊戲</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #050508;
+            color: #e2e8f0;
+            user-select: none;
+        }
+        .glass-panel {
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .sidebar-border {
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .glow-active {
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.35);
+            border-color: rgba(99, 102, 241, 0.6);
+        }
+        /* 物理畫布過渡動畫 */
+        #viewportCanvas {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+    <!-- 頂部遊戲狀態列 -->
+    <header class="glass-panel sticky top-0 z-50 px-6 py-3 flex items-center justify-between border-b border-white/5">
+        <div class="flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-indigo-600 via-violet-600 to-indigo-800 p-2 rounded-lg text-white shadow-md">
+                <i class="fa-solid fa-gamepad text-lg animate-pulse"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-extrabold tracking-wider text-white">
+                    AI ARTIST TYCOON <span class="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-mono border border-indigo-500/30">遊戲版 v1.0</span>
+                </h1>
+                <p class="text-[10px] text-gray-500 tracking-wide font-mono">工作室營運模擬器</p>
+            </div>
+        </div>
+        
+        <!-- 玩家經營資源數據 -->
+        <div class="flex items-center space-x-6 text-xs font-mono">
+            <div class="flex items-center space-x-4">
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-white/5">
+                    <span class="text-gray-500">資金:</span>
+                    <span id="playerCash" class="text-emerald-400 font-bold ml-1">$500</span>
+                </div>
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-white/5">
+                    <span class="text-gray-500">聲望等級:</span>
+                    <span id="playerLevel" class="text-indigo-400 font-bold ml-1">LV.1 業餘畫室</span>
+                </div>
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-white/5 hidden sm:block">
+                    <span class="text-gray-500">經驗值:</span>
+                    <span id="playerExp" class="text-pink-400 font-bold ml-1">0 / 100 XP</span>
+                </div>
+            </div>
+            <span id="vramBadge" class="bg-indigo-500/10 text-indigo-400 px-3 py-1.5 rounded-md border border-indigo-500/20 flex items-center gap-1.5 font-medium">
+                <i class="fa-solid fa-microchip text-xs"></i>
+                <span>VRAM: <span id="currentVram">12</span> / <span id="maxVram">12</span> GB</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- 遊戲主分頁標籤 -->
+    <div class="bg-black/60 border-b border-white/5 flex px-6 py-2 gap-4">
+        <button id="tabWorkspace" class="text-xs font-bold tracking-wider uppercase text-indigo-400 border-b-2 border-indigo-500 pb-1 px-2">
+            <i class="fa-solid fa-desktop mr-1"></i> 繪圖工作台
+        </button>
+        <button id="tabShop" class="text-xs font-bold tracking-wider uppercase text-gray-400 hover:text-white pb-1 px-2 transition">
+            <i class="fa-solid fa-shop mr-1"></i> 設備與商城升級
+        </button>
+    </div>
+
+    <!-- 遊戲主體 -->
+    <main class="flex-grow flex flex-col lg:flex-row">
+        
+        <!-- 左側面板 (工作台/商城) -->
+        <section class="w-full lg:w-[460px] sidebar-border bg-black/40 flex flex-col shrink-0">
+            
+            <!-- 分頁 1: 工作台 -->
+            <div id="panelWorkspace" class="p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-120px)]">
+                
+                <!-- 遊戲客戶委託合約 (Game Mission Contract) -->
+                <div class="bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-gray-950/40 border border-indigo-500/20 rounded-xl p-4 space-y-2.5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-[11px] font-bold text-indigo-400 tracking-wider uppercase flex items-center gap-1">
+                            <i class="fa-solid fa-file-signature"></i> 當前客戶委託合約
+                        </span>
+                        <span id="missionStatus" class="text-[10px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/20">進行中</span>
+                    </div>
+                    <div class="space-y-1 text-xs">
+                        <div class="text-gray-300 font-bold">客戶: <span id="clientName" class="text-white">--</span></div>
+                        <div class="text-gray-400 leading-relaxed">委託需求: <span id="clientDemand" class="text-yellow-200">--</span></div>
+                        <div class="grid grid-cols-2 gap-2 pt-1 text-[11px] text-gray-500 font-mono">
+                            <div>要求尺寸: <span id="reqRes" class="text-indigo-300">--</span></div>
+                            <div>合約報酬: <span id="reqReward" class="text-emerald-400">--</span></div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button id="skipMissionBtn" class="flex-1 bg-gray-900 hover:bg-gray-800 text-[10px] text-gray-400 py-1.5 rounded border border-white/5 transition">
+                            放棄並更換委託
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 1. 核心提示詞工作區 -->
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <label class="text-xs font-semibold tracking-wider text-gray-400 uppercase flex items-center gap-1.5">
+                            <i class="fa-solid fa-align-left text-indigo-400"></i> 正向提示詞 (Positive Prompt)
+                        </label>
+                        <button id="clearPromptBtn" class="text-[11px] text-gray-500 hover:text-rose-400 font-mono transition">
+                            [RESET]
+                        </button>
+                    </div>
+                    <textarea id="promptInput" rows="2" 
+                        class="w-full bg-[#0a0a0f] border border-white/5 rounded-lg p-3 text-white text-xs placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-transparent resize-none transition font-mono"
+                        placeholder="請用英文輸入描述，如: A cute cat..."></textarea>
+                    
+                    <!-- 提示詞快速填充塊 (符合客戶需求) -->
+                    <div class="flex flex-wrap gap-1" id="fastWordsContainer">
+                        <!-- JS 隨機生成匹配字，供玩家點擊 -->
+                    </div>
+                </div>
+
+                <!-- 2. 精準解析度滑桿控制區 -->
+                <div class="space-y-3 bg-black/30 p-3 rounded-xl border border-white/5">
+                    <div class="flex justify-between items-center text-[11px] pb-1 border-b border-white/5">
+                        <span class="text-gray-400 font-bold uppercase">解析度與物理尺寸 (DIMENSIONS)</span>
+                        <label class="flex items-center gap-1 text-gray-500 cursor-pointer hover:text-indigo-400 transition">
+                            <input type="checkbox" id="lockRatioToggle" class="accent-indigo-500" checked>
+                            <span>鎖定比例</span>
+                        </label>
+                    </div>
+                    
+                    <!-- 寬度控制 -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-[11px]">
+                            <span class="text-gray-500">畫布寬度 (Width)</span>
+                            <span id="widthVal" class="text-indigo-300 font-mono font-bold">1024 px</span>
+                        </div>
+                        <input type="range" id="widthInput" min="256" max="1536" step="64" value="1024" class="w-full accent-indigo-500 h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- 高度控制 -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-[11px]">
+                            <span class="text-gray-500">畫布高度 (Height)</span>
+                            <span id="heightVal" class="text-indigo-300 font-mono font-bold">1024 px</span>
+                        </div>
+                        <input type="range" id="heightInput" min="256" max="1536" step="64" value="1024" class="w-full accent-indigo-500 h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- 預設比例一鍵切換 -->
+                    <div class="space-y-1 pt-1">
+                        <div class="grid grid-cols-5 gap-1 text-[10px]" id="ratioPresetGrid">
+                            <button class="preset-btn border border-indigo-500/50 bg-indigo-500/10 text-white py-1 rounded transition font-mono" data-w="1024" data-h="1024">1:1</button>
+                            <button class="preset-btn border border-white/5 bg-gray-900/30 text-gray-400 py-1 rounded hover:border-white/10 transition font-mono" data-w="1344" data-h="768">16:9</button>
+                            <button class="preset-btn border border-white/5 bg-gray-900/30 text-gray-400 py-1 rounded hover:border-white/10 transition font-mono" data-w="768" data-h="1344">9:16</button>
+                            <button class="preset-btn border border-white/5 bg-gray-900/30 text-gray-400 py-1 rounded hover:border-white/10 transition font-mono" data-w="1024" data-h="768">4:3</button>
+                            <button class="preset-btn border border-white/5 bg-gray-900/30 text-gray-400 py-1 rounded hover:border-white/10 transition font-mono" data-w="1152" data-h="768">3:2</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 風格切換器 -->
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-gray-400 uppercase block">藝術風格 (Art Style)</label>
+                    <div class="grid grid-cols-3 gap-1.5 text-xs" id="styleGrid">
+                        <!-- 由 JS 動態生成並根據玩家解鎖狀態更新 -->
+                    </div>
+                </div>
+
+                <!-- 渲染消耗與提交 -->
+                <div class="pt-2">
+                    <button id="generateBtn" class="glow-button w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white py-3 px-6 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition tracking-wider uppercase">
+                        <i class="fa-solid fa-bolt"></i>
+                        渲染此圖像 (消耗 <span id="vramCost">4</span> GB VRAM)
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- 分頁 2: 設備升級商城 -->
+            <div id="panelShop" class="p-6 space-y-5 overflow-y-auto max-h-[calc(100vh-120px)] hidden">
+                <h3 class="text-xs font-bold text-indigo-400 tracking-wider uppercase mb-2"><i class="fa-solid fa-microchip mr-1"></i> 工作室硬體與設備升級</h3>
+                
+                <!-- 升級列表 -->
+                <div class="space-y-4" id="shopList">
+                    <!-- 由 JS 自動建構 -->
+                </div>
+            </div>
+
+        </section>
+
+        <!-- 右側：渲染視口、交件中心與日誌控制台 (60%) -->
+        <section class="flex-grow p-6 lg:p-8 flex flex-col gap-6 bg-[#040406]/50 min-w-0">
+            
+            <!-- 渲染主視口 -->
+            <div class="glass-panel rounded-2xl p-6 shadow-2xl flex flex-col justify-between min-h-[500px]">
+                <div class="flex justify-between items-center mb-4 border-b border-white/5 pb-3">
+                    <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                        <i class="fa-solid fa-desktop text-indigo-400"></i> WORKSPACE_MONITOR [繪圖渲染器]
+                    </h2>
+                    <span id="renderStatus" class="text-[10px] text-gray-500 font-mono">IDLE</span>
+                </div>
+
+                <!-- 自適應物理比例成像畫布 -->
+                <div class="flex-grow flex items-center justify-center p-4 bg-black/40 rounded-xl border border-white/5 min-h-[400px]">
+                    <div id="viewportCanvas" class="bg-[#0c0c12] rounded-lg border border-white/10 flex items-center justify-center overflow-hidden relative shadow-inner" style="width: 400px; aspect-ratio: 1/1; max-height: 400px;">
+                        
+                        <!-- 預設等候狀態 -->
+                        <div id="emptyState" class="flex flex-col items-center text-center p-6 max-w-xs z-10">
+                            <div class="w-12 h-12 bg-indigo-950/40 border border-indigo-500/20 rounded-xl flex items-center justify-center text-indigo-400 text-lg mb-3">
+                                <i class="fa-solid fa-brush"></i>
+                            </div>
+                            <h3 class="text-[11px] font-mono font-semibold text-gray-300 uppercase tracking-widest">Awaiting Render</h3>
+                            <p class="text-[10px] text-gray-500 mt-1.5 leading-relaxed">
+                                配置左側客戶要求的規格、輸入正向提示詞並點選「渲染此圖像」。
+                            </p>
+                        </div>
+
+                        <!-- 渲染進度指示器 -->
+                        <div id="loadingState" class="hidden flex flex-col items-center text-center p-6 w-full max-w-xs z-10">
+                            <div class="relative w-12 h-12 mb-3">
+                                <div class="absolute inset-0 rounded-full border-2 border-indigo-500/10 border-t-indigo-500 animate-spin"></div>
+                                <div class="absolute inset-0 flex items-center justify-center text-indigo-400">
+                                    <i class="fa-solid fa-rotate text-xs animate-pulse"></i>
+                                </div>
+                            </div>
+                            <h3 id="loadingStage" class="text-[10px] font-mono font-semibold text-indigo-400 uppercase tracking-wider">SCHEDULER_SAMPLING</h3>
+                            
+                            <!-- 專業進度條 -->
+                            <div class="w-36 bg-gray-900 h-1 rounded-full overflow-hidden mt-2 mb-1.5 border border-white/5">
+                                <div id="progressBar" class="bg-indigo-500 h-full w-0 transition-all duration-300"></div>
+                            </div>
+                            <span id="progressPercent" class="text-[9px] font-mono text-gray-500">0% (0/20 steps)</span>
+                        </div>
+
+                        <!-- 生成圖片展示 -->
+                        <img id="resultImage" class="hidden w-full h-full object-cover transition-all duration-500 opacity-0 absolute inset-0" alt="Generated Output">
+                    </div>
+                </div>
+
+                <!-- 交付委託與利潤結算控制台 (New Dedicated Deliver Panel) -->
+                <div id="deliverPanel" class="hidden mt-4 bg-indigo-950/20 border border-indigo-500/30 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4 animate-fadeIn">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-lg border border-indigo-500/20 shrink-0">
+                            <i class="fa-solid fa-file-invoice-dollar"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-gray-200">✨ 圖像渲染完畢！</h4>
+                            <p class="text-[10px] text-gray-400 mt-0.5">圖片符合當前解析度與尺寸，您可以提交交付給客戶來領取報酬。</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <button id="downloadBtnMain" class="flex-grow md:flex-none bg-gray-900 hover:bg-gray-800 border border-white/5 text-gray-200 text-xs py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition">
+                            <i class="fa-solid fa-download"></i> 保存作品
+                        </button>
+                        <button id="submitMissionBtn" class="flex-grow md:flex-none bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs py-2 px-5 rounded-lg flex items-center justify-center gap-2 transition duration-200 shadow-lg shadow-emerald-900/40">
+                            <i class="fa-solid fa-paper-plane"></i> 交付給客戶
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 即時控制台終端日誌 (遊戲故事進展) -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-2 shadow-xl">
+                <div class="flex justify-between items-center text-[10px] text-gray-500 font-mono uppercase tracking-widest pb-2 border-b border-white/5">
+                    <span><i class="fa-solid fa-terminal mr-1"></i> STUDIO_LOGS / 控制台</span>
+                    <span class="text-emerald-500">ONLINE</span>
+                </div>
+                <div id="terminalBody" class="h-16 overflow-y-auto text-[10px] font-mono text-gray-400 space-y-1.5 leading-relaxed pt-1 select-text">
+                    <div class="text-gray-600">&gt; Studio computer initialized. Accept commissions and upgrade hardware!</div>
+                </div>
+            </div>
+
+            <!-- 歷史檔案/作品廊 -->
+            <div class="glass-panel rounded-2xl p-6 shadow-2xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xs font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
+                        <i class="fa-solid fa-folder-open text-indigo-400"></i> GALLERY [工作室相簿廊] (<span id="historyCount">0</span>)
+                    </h3>
+                </div>
+                <div id="historyGrid" class="grid grid-cols-4 md:grid-cols-8 gap-3 max-h-[120px] overflow-y-auto pr-1">
+                    <!-- 縮圖 -->
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- 通知小氣球 -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-12 opacity-0 pointer-events-none transition-all duration-300 ease-out flex items-center gap-2 bg-[#0a0a0f] border border-white/5 text-white px-4 py-3 rounded-xl shadow-2xl text-xs font-mono">
+        <span id="toastIcon" class="text-indigo-400"><i class="fa-solid fa-circle-info"></i></span>
+        <span id="toastText"></span>
+    </div>
+
+    <!-- 客戶回饋與結算彈窗 (Game Report Modal) -->
+    <div id="reportModal" class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-all duration-300">
+        <div class="glass-panel rounded-2xl max-w-md w-full p-6 flex flex-col gap-4 relative">
+            <h3 class="text-xs font-mono font-bold text-indigo-300 uppercase tracking-widest text-center border-b border-white/5 pb-2">💼 委託驗收評分報告</h3>
+            <div class="space-y-4 text-xs">
+                <div class="flex justify-center my-2">
+                    <div id="reportScore" class="text-4xl font-black text-emerald-400">95%</div>
+                </div>
+                <div class="bg-black/40 p-3 rounded-lg border border-white/5 space-y-1.5">
+                    <div class="flex justify-between"><span>提示詞關鍵字契合度:</span> <span id="rPrompt" class="text-white">優 (100%)</span></div>
+                    <div class="flex justify-between"><span>高寬解析度精確度:</span> <span id="rRes" class="text-white">優 (100%)</span></div>
+                    <div class="flex justify-between"><span>藝術風格匹配度:</span> <span id="rStyle" class="text-white">優 (100%)</span></div>
+                </div>
+                <p id="clientReview" class="text-gray-400 text-center italic">"太棒了！這正是我想要的，完全符合需求！"</p>
+                <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-emerald-300 flex justify-around text-center">
+                    <div>
+                        <div class="text-[10px] text-emerald-400/60 uppercase">獲得工作室資金</div>
+                        <div id="rCash" class="font-bold text-sm">+$150</div>
+                    </div>
+                    <div>
+                        <div class="text-[10px] text-emerald-400/60 uppercase">獲得聲望經驗</div>
+                        <div id="rExp" class="font-bold text-sm">+45 XP</div>
+                    </div>
+                </div>
+            </div>
+            <button id="closeReportBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-xl text-xs transition">
+                關閉並承接下個任務
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript 遊戲邏輯與自適應神經渲染模擬 -->
+    <script>
+        // 1. 初始化與環境變數
+        const apiKey = ""; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nexus-artist-tycoon';
+
+        // 2. 模擬生圖攝影圖庫 (分類對應)
+        const proImageVault = {
+            scifi: [
+                "https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&q=80",
+                "https://images.unsplash.com/photo-1578894381163-e72c17f2d45f?auto=format&q=80",
+                "https://images.unsplash.com/photo-1515621061946-eff1c2a352bd?auto=format&q=80"
+            ],
+            nature: [
+                "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&q=80",
+                "https://images.unsplash.com/photo-1500485035595-cbe6f645feb1?auto=format&q=80",
+                "https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&q=80"
+            ],
+            portrait: [
+                "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&q=80",
+                "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&q=80",
+                "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&q=80"
+            ],
+            architecture: [
+                "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&q=80",
+                "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&q=80",
+                "https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&q=80"
+            ],
+            anime: [
+                "https://images.unsplash.com/photo-1560942485-b2a11cc13456?auto=format&q=80",
+                "https://images.unsplash.com/photo-1618336753974-aae8e04506aa?auto=format&q=80",
+                "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&q=80"
+            ],
+            animals: [
+                "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&q=80", // 貓咪
+                "https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&q=80", // 狗狗
+                "https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&q=80", // 柴犬
+                "https://images.unsplash.com/photo-1425082661705-1834bfd09dca?auto=format&q=80"  // 倉鼠
+            ],
+            objects: [
+                "https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&q=80", // 概念跑車
+                "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?auto=format&q=80", // 未來機械
+                "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&q=80"  // 精緻美食
+            ]
+        };
+
+        // 3. 遊戲內置資料
+        const gameStyles = [
+            { id: 'none', name: '無特定風格', promptSuffix: '', unlocked: true },
+            { id: 'cyberpunk', name: '賽博朋克', promptSuffix: ', cyberpunk, neon light, highly detailed', unlocked: true },
+            { id: 'watercolor', name: '浪漫水彩', promptSuffix: ', watercolor painting, soft pastels', unlocked: true },
+            { id: 'anime', name: '日系動漫', promptSuffix: ', anime style, vibrant, key visual', unlocked: false, cost: 300 },
+            { id: 'gothic', name: '黑暗哥德', promptSuffix: ', gothic style, dark fantasy, dramatic lighting', unlocked: false, cost: 500 },
+            { id: 'uprisings', name: '傳統浮世繪', promptSuffix: ', Japanese Ukiyo-e woodblock style', unlocked: false, cost: 800 }
+        ];
+
+        const styleIcons = {
+            none: 'fa-wand-magic',
+            cyberpunk: 'fa-bolt',
+            watercolor: 'fa-palette',
+            anime: 'fa-face-smile-wink',
+            gothic: 'fa-moon',
+            uprisings: 'fa-mountain'
+        };
+
+        // 隨機客戶與需求池
+        const clientPool = ["阿明", "小華", "李經理", "王導播", "美美", "張教授", "遊戲製作人小天", "雜誌總編莎莎"];
+        const demandPool = [
+            { subject: "貓咪 (Cat)", category: "animals", keywords: ["cat", "kitty", "feline", "貓"] },
+            { subject: "狗狗 (Dog)", category: "animals", keywords: ["dog", "puppy", "shiba", "狗"] },
+            { subject: "太空船 (Spacecraft)", category: "scifi", keywords: ["spacecraft", "starship", "spaceship", "太空", "宇宙"] },
+            { subject: "現代別墅 (Villa)", category: "architecture", keywords: ["villa", "house", "building", "別墅", "建築"] },
+            { subject: "神秘古神殿 (Temple)", category: "architecture", keywords: ["temple", "shrine", "ancient", "神殿", "廟"] },
+            { subject: "未來跑車 (Sports Car)", category: "objects", keywords: ["car", "sports car", "supercar", "跑車", "車"] },
+            { subject: "精緻甜點 (Cake)", category: "objects", keywords: ["cake", "dessert", "sweet", "蛋糕", "甜點"] },
+            { subject: "女戰士肖像 (Portrait)", category: "portrait", keywords: ["portrait", "warrior", "girl", "woman", "人像", "肖像"] }
+        ];
+
+        const ratioPresets = [
+            { label: "1:1 正方形", w: 1024, h: 1024, ratio: "1:1" },
+            { label: "16:9 寬螢幕", w: 1344, h: 768, ratio: "16:9" },
+            { label: "9:16 直屏", w: 768, h: 1344, ratio: "9:16" },
+            { label: "4:3 經典", w: 1024, h: 768, ratio: "4:3" },
+            { label: "3:2 攝影", w: 1152, h: 768, ratio: "3:2" }
+        ];
+
+        // 4. 遊戲狀態
+        let gameState = {
+            cash: 500,
+            level: 1,
+            levelName: "業餘畫室",
+            exp: 0,
+            maxExp: 100,
+            vram: 12,
+            maxVram: 12,
+            gpuModel: "NVIDIA GTX 1060 (6GB VRAM)",
+            renderSpeed: 1.0, // 係數，越低越快
+            unlockedStyles: ['none', 'cyberpunk', 'watercolor'],
+            unlockedModels: ['imagen-4.0-fast-001'],
+            hasAssistant: false,
+            currentMission: null,
+            history: []
+        };
+
+        // 目前工作台暫存
+        let selectedWidth = 1024;
+        let selectedHeight = 1024;
+        let lastRatio = 1.0;
+        let selectedStyle = 'none';
+        let currentGeneratedImage = null;
+        let currentMetadata = {};
+
+        // 5. DOM 節點
+        const tabWorkspace = document.getElementById('tabWorkspace');
+        const tabShop = document.getElementById('tabShop');
+        const panelWorkspace = document.getElementById('panelWorkspace');
+        const panelShop = document.getElementById('panelShop');
+
+        const playerCash = document.getElementById('playerCash');
+        const playerLevel = document.getElementById('playerLevel');
+        const playerExp = document.getElementById('playerExp');
+        const currentVramText = document.getElementById('currentVram');
+        const maxVramText = document.getElementById('maxVram');
+        const vramBadge = document.getElementById('vramBadge');
+
+        // 任務節點
+        const clientName = document.getElementById('clientName');
+        const clientDemand = document.getElementById('clientDemand');
+        const reqRes = document.getElementById('reqRes');
+        const reqReward = document.getElementById('reqReward');
+        const skipMissionBtn = document.getElementById('skipMissionBtn');
+
+        // 工作台元件
+        const promptInput = document.getElementById('promptInput');
+        const clearPromptBtn = document.getElementById('clearPromptBtn');
+        const fastWordsContainer = document.getElementById('fastWordsContainer');
+        const widthInput = document.getElementById('widthInput');
+        const widthVal = document.getElementById('widthVal');
+        const heightInput = document.getElementById('heightInput');
+        const heightVal = document.getElementById('heightVal');
+        const lockRatioToggle = document.getElementById('lockRatioToggle');
+        const styleGrid = document.getElementById('styleGrid');
+        const generateBtn = document.getElementById('generateBtn');
+        const vramCostText = document.getElementById('vramCost');
+
+        // 畫布與狀態
+        const viewportCanvas = document.getElementById('viewportCanvas');
+        const emptyState = document.getElementById('emptyState');
+        const loadingState = document.getElementById('loadingState');
+        const loadingStage = document.getElementById('loadingStage');
+        const progressBar = document.getElementById('progressBar');
+        const progressPercent = document.getElementById('progressPercent');
+        const errorState = document.getElementById('errorState');
+        const errorMsg = document.getElementById('errorMsg');
+        const resultImage = document.getElementById('resultImage');
+        const renderStatus = document.getElementById('renderStatus');
+
+        // 交付區
+        const deliverPanel = document.getElementById('deliverPanel');
+        const downloadBtnMain = document.getElementById('downloadBtnMain');
+        const submitMissionBtn = document.getElementById('submitMissionBtn');
+        const generationSummary = document.getElementById('generationSummary');
+        const metaModel = document.getElementById('metaModel');
+        const metaSeed = document.getElementById('metaSeed');
+        const metaStepsCfg = document.getElementById('metaStepsCfg');
+        const metaLatency = document.getElementById('metaLatency');
+
+        // 終端日誌與歷史
+        const terminalBody = document.getElementById('terminalBody');
+        const historyCount = document.getElementById('historyCount');
+        const historyGrid = document.getElementById('historyGrid');
+        const shopList = document.getElementById('shopList');
+
+        // Modal 元件
+        const reportModal = document.getElementById('reportModal');
+        const reportScore = document.getElementById('reportScore');
+        const rPrompt = document.getElementById('rPrompt');
+        const rRes = document.getElementById('rRes');
+        const rStyle = document.getElementById('rStyle');
+        const clientReview = document.getElementById('clientReview');
+        const rCash = document.getElementById('rCash');
+        const rExp = document.getElementById('rExp');
+        const closeReportBtn = document.getElementById('closeReportBtn');
+
+        // Detail Modal 元件
+        const detailModal = document.getElementById('detailModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalImage = document.getElementById('modalImage');
+        const modalPrompt = document.getElementById('modalPrompt');
+        const modalModelText = document.getElementById('modalModelText');
+        const modalSeedText = document.getElementById('modalSeedText');
+        const modalRatioText = document.getElementById('modalRatioText');
+        const modalStepsText = document.getElementById('modalStepsText');
+        const modalDownload = document.getElementById('modalDownload');
+        const modalReuse = document.getElementById('modalReuse');
+
+        // 6. 遊戲引擎初始化與加載
+        function initializeGame() {
+            addLog("繪圖工作室運作晶片載入成功！");
+
+            // 讀取進度
+            const cachedState = localStorage.getItem(`art_tycoon_save_${appId}`);
+            if (cachedState) {
+                try {
+                    gameState = JSON.parse(cachedState);
+                } catch (e) {
+                    addLog("進度解析失敗，已建立全新存檔。");
+                }
+            }
+
+            updatePlayerUI();
+            rebuildStylesGrid();
+            rebuildShopList();
+            generateNewMission();
+            setupAutoVramRecovery();
+            setupInputsAndSliders();
+        }
+
+        // 定期回復顯示卡的 VRAM 運算能力
+        function setupAutoVramRecovery() {
+            setInterval(() => {
+                if (gameState.vram < gameState.maxVram) {
+                    gameState.vram = Math.min(gameState.maxVram, gameState.vram + 1);
+                    updateVramUI();
+                }
+            }, 3000); // 每 3 秒回復 1 GB
+        }
+
+        function updatePlayerUI() {
+            playerCash.innerText = `$${gameState.cash}`;
+            playerLevel.innerText = `LV.${gameState.level} ${gameState.levelName}`;
+            playerExp.innerText = `${gameState.exp} / ${gameState.maxExp} XP`;
+            updateVramUI();
+        }
+
+        function updateVramUI() {
+            currentVramText.innerText = gameState.vram;
+            maxVramText.innerText = gameState.maxVram;
+
+            // 根據 VRAM 殘餘百分比動態調整徽章配色
+            const pct = (gameState.vram / gameState.maxVram) * 100;
+            vramBadge.className = "px-3 py-1.5 rounded-md border flex items-center gap-1.5 font-medium text-xs font-mono " +
+                (pct < 30 ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-indigo-500/10 text-indigo-400 border-indigo-500/20");
+        }
+
+        // 7. 遊戲控制滑桿與快捷鍵
+        function setupInputsAndSliders() {
+            lastRatio = selectedWidth / selectedHeight;
+
+            // 寬度調整
+            widthInput.addEventListener('input', () => {
+                let w = parseInt(widthInput.value);
+                if (lockRatioToggle.checked) {
+                    let targetH = Math.round((w / lastRatio) / 64) * 64;
+                    targetH = Math.max(256, Math.min(1536, targetH));
+                    heightInput.value = targetH;
+                    selectedHeight = targetH;
+                    heightVal.innerText = `${targetH} px`;
+                }
+                selectedWidth = w;
+                widthVal.innerText = `${w} px`;
+                updateCanvasPhysicalRatio(selectedWidth, selectedHeight);
+                calculateVramCost();
+            });
+
+            // 高度調整
+            heightInput.addEventListener('input', () => {
+                let h = parseInt(heightInput.value);
+                if (lockRatioToggle.checked) {
+                    let targetW = Math.round((h * lastRatio) / 64) * 64;
+                    targetW = Math.max(256, Math.min(1536, targetW));
+                    widthInput.value = targetW;
+                    selectedWidth = targetW;
+                    widthVal.innerText = `${targetW} px`;
+                }
+                selectedHeight = h;
+                heightVal.innerText = `${h} px`;
+                updateCanvasPhysicalRatio(selectedWidth, selectedHeight);
+                calculateVramCost();
+            });
+
+            lockRatioToggle.addEventListener('change', () => {
+                if (lockRatioToggle.checked) {
+                    lastRatio = selectedWidth / selectedHeight;
+                }
+            });
+
+            // 快捷比例切換
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.preset-btn').forEach(b => {
+                        b.classList.remove('border-indigo-500/50', 'bg-indigo-500/10', 'text-white');
+                        b.classList.add('border-white/5', 'bg-gray-900/30', 'text-gray-400');
+                    });
+                    btn.classList.remove('border-white/5', 'bg-gray-900/30', 'text-gray-400');
+                    btn.classList.add('border-indigo-500/50', 'bg-indigo-500/10', 'text-white');
+
+                    const w = parseInt(btn.getAttribute('data-w'));
+                    const h = parseInt(btn.getAttribute('data-h'));
+
+                    widthInput.value = w;
+                    heightInput.value = h;
+                    selectedWidth = w;
+                    selectedHeight = h;
+                    widthVal.innerText = `${w} px`;
+                    heightVal.innerText = `${h} px`;
+                    lastRatio = w / h;
+
+                    updateCanvasPhysicalRatio(w, h);
+                    calculateVramCost();
+                    addLog(`工作台解析度重置預設：${w} x ${h}`);
+                });
+            });
+
+            calculateVramCost();
+        }
+
+        // 物理畫布縮放
+        function updateCanvasPhysicalRatio(w, h) {
+            const ratio = w / h;
+            viewportCanvas.style.aspectRatio = `${w} / ${h}`;
+            if (ratio >= 1.0) {
+                viewportCanvas.style.width = "400px";
+            } else {
+                viewportCanvas.style.width = `${400 * ratio}px`;
+            }
+        }
+
+        // 計算當前委託所需要耗費的 VRAM 算力
+        function calculateVramCost() {
+            // 解析度越大，算力開銷越高
+            const pixels = selectedWidth * selectedHeight;
+            let cost = 3;
+            if (pixels > 1024 * 1024) cost = 6;
+            else if (pixels > 768 * 768) cost = 4;
+            
+            vramCostText.innerText = cost;
+        }
+
+        // 8. 每日委託任務生成系統
+        function generateNewMission() {
+            const client = clientPool[Math.floor(Math.random() * clientPool.length)];
+            const demand = demandPool[Math.floor(Math.random() * demandPool.length)];
+            const ratio = ratioPresets[Math.floor(Math.random() * ratioPresets.length)];
+            
+            // 根據等級調整報酬金
+            const baseReward = Math.floor(100 + Math.random() * 80) * gameState.level;
+
+            gameState.currentMission = {
+                client: client,
+                subject: demand.subject,
+                category: demand.category,
+                keywords: demand.keywords,
+                ratioLabel: ratio.label,
+                reqW: ratio.w,
+                reqH: ratio.h,
+                reward: baseReward,
+                style: gameStyles[Math.floor(Math.random() * 3)].name // 只隨機要求前三種初始風格
+            };
+
+            // 渲染任務 UI
+            clientName.innerText = gameState.currentMission.client;
+            clientDemand.innerText = `我需要一張「${gameState.currentMission.style}」風格的 ${gameState.currentMission.subject}！`;
+            reqRes.innerText = `${ratio.label} (${gameState.currentMission.reqW}x${gameState.currentMission.reqH})`;
+            reqReward.innerText = `$${gameState.currentMission.reward}`;
+
+            // 生成快速匹配字庫，幫助玩家生圖
+            fastWordsContainer.innerHTML = '';
+            const allHelperWords = [
+                ...demand.keywords, 
+                "masterpiece", "epic detail", "cinematic lighting", "high definition", "cyberpunk city", "cute", "fluffy"
+            ];
+            
+            // 洗牌取出前 6 個
+            allHelperWords.sort(() => Math.random() - 0.5);
+            allHelperWords.slice(0, 6).forEach(word => {
+                const tag = document.createElement('button');
+                tag.className = "bg-gray-950 hover:bg-indigo-950 text-gray-400 hover:text-white px-2 py-1 rounded border border-white/5 text-[10px] font-mono transition";
+                tag.innerText = `+ ${word}`;
+                tag.addEventListener('click', () => {
+                    if (promptInput.value) {
+                        promptInput.value += `, ${word}`;
+                    } else {
+                        promptInput.value = word;
+                    }
+                    showToast(`已追加提示詞: ${word}`);
+                });
+                fastWordsContainer.appendChild(tag);
+            });
+
+            addLog(`新客戶委託來信！客戶：${client}，需求主題為：${demand.subject}`);
+        }
+
+        // 9. 升級商城系統
+        const upgradeItems = [
+            {
+                id: 'gpu_level_2',
+                name: '升級為 RTX 3060 顯示卡',
+                desc: '增加算力，提升生圖去噪速度，並提升 VRAM 上限至 16 GB！',
+                cost: 250,
+                purchased: false,
+                onBuy: () => {
+                    gameState.maxVram = 16;
+                    gameState.renderSpeed = 0.7; // 加速 30%
+                    gameState.gpuModel = "NVIDIA RTX 3060 (16GB VRAM)";
+                }
+            },
+            {
+                id: 'gpu_level_3',
+                name: '頂級旗艦卡 RTX 4090 Pro',
+                desc: '極限去噪速度！VRAM 最大值解鎖至 24 GB！',
+                cost: 600,
+                purchased: false,
+                onBuy: () => {
+                    gameState.maxVram = 24;
+                    gameState.renderSpeed = 0.4; // 加速 60%
+                    gameState.gpuModel = "NVIDIA RTX 4090 Studio (24GB VRAM)";
+                }
+            },
+            {
+                id: 'assistant',
+                name: '招募 AI 提示詞助教',
+                desc: '在生圖時，自動為玩家提供 15% 的契合度評分加成，更容易拿到滿星委託！',
+                cost: 400,
+                purchased: false,
+                onBuy: () => {
+                    gameState.hasAssistant = true;
+                }
+            }
+        ];
+
+        function rebuildShopList() {
+            shopList.innerHTML = '';
+            upgradeItems.forEach(item => {
+                // 檢查是否已購買
+                const hasPurchased = gameState.unlockedStyles.includes(item.id) || 
+                                     (item.id === 'assistant' && gameState.hasAssistant) ||
+                                     (item.id === 'gpu_level_2' && gameState.maxVram >= 16) ||
+                                     (item.id === 'gpu_level_3' && gameState.maxVram >= 24);
+
+                const card = document.createElement('div');
+                card.className = "bg-gray-950/80 p-4 rounded-xl border border-white/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4";
+                card.innerHTML = `
+                    <div class="space-y-1">
+                        <h4 class="text-xs font-bold text-gray-200">${item.name}</h4>
+                        <p class="text-[10px] text-gray-500 leading-relaxed max-w-xs">${item.desc}</p>
+                    </div>
+                    <button class="buy-btn w-full md:w-auto text-[11px] font-bold py-2 px-4 rounded-lg transition shrink-0 ${
+                        hasPurchased 
+                        ? 'bg-gray-900 text-gray-600 border border-white/5 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-950'
+                    }" ${hasPurchased ? 'disabled' : ''}>
+                        ${hasPurchased ? '[已擁有]' : `購買: $${item.cost}`}
+                    </button>
+                `;
+
+                if (!hasPurchased) {
+                    card.querySelector('.buy-btn').addEventListener('click', () => {
+                        if (gameState.cash >= item.cost) {
+                            gameState.cash -= item.cost;
+                            item.onBuy();
+                            showToast(`升級成功：${item.name}！`);
+                            addLog(`升級成功：${item.name}`);
+                            saveGame();
+                            updatePlayerUI();
+                            rebuildShopList();
+                        } else {
+                            showToast('工作室營運資金不足，快去接單賺錢吧！', 'error');
+                        }
+                    });
+                }
+
+                shopList.appendChild(card);
+            });
+
+            // 另外在商城顯示風格解鎖購買
+            const styleHeader = document.createElement('h4');
+            styleHeader.className = "text-xs font-bold text-pink-400 tracking-wider uppercase mt-6 mb-2";
+            styleHeader.innerHTML = "<i class='fa-solid fa-palette mr-1'></i> 解鎖更多繪圖畫風";
+            shopList.appendChild(styleHeader);
+
+            gameStyles.forEach(style => {
+                if (style.id === 'none') return;
+                const hasUnlocked = gameState.unlockedStyles.includes(style.id);
+
+                const card = document.createElement('div');
+                card.className = "bg-gray-950/80 p-4 rounded-xl border border-white/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4";
+                card.innerHTML = `
+                    <div class="space-y-1">
+                        <h4 class="text-xs font-bold text-gray-200">解鎖風格: ${style.name}</h4>
+                        <p class="text-[10px] text-gray-500 leading-relaxed max-w-xs">向算力模型訓練全新風格，提高客戶多元委託機率！</p>
+                    </div>
+                    <button class="buy-btn w-full md:w-auto text-[11px] font-bold py-2 px-4 rounded-lg transition shrink-0 ${
+                        hasUnlocked 
+                        ? 'bg-gray-900 text-gray-600 border border-white/5 cursor-not-allowed' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-950'
+                    }" ${hasUnlocked ? 'disabled' : ''}>
+                        ${hasUnlocked ? '[已解鎖]' : `訓練費: $${style.cost}`}
+                    </button>
+                `;
+
+                if (!hasUnlocked) {
+                    card.querySelector('.buy-btn').addEventListener('click', () => {
+                        if (gameState.cash >= style.cost) {
+                            gameState.cash -= style.cost;
+                            gameState.unlockedStyles.push(style.id);
+                            showToast(`成功解鎖 ${style.name} 畫風模式！`);
+                            addLog(`解鎖新風格模型：${style.name}`);
+                            saveGame();
+                            updatePlayerUI();
+                            rebuildShopList();
+                            rebuildStylesGrid();
+                        } else {
+                            showToast('解鎖資金不足！', 'error');
+                        }
+                    });
+                }
+
+                shopList.appendChild(card);
+            });
+        }
+
+        // 重構工作台風格選擇
+        function rebuildStylesGrid() {
+            styleGrid.innerHTML = '';
+            gameStyles.forEach(style => {
+                const isUnlocked = gameState.unlockedStyles.includes(style.id);
+                if (!isUnlocked) return; // 沒解鎖的在工作台不顯示
+
+                const btn = document.createElement('button');
+                btn.id = `style-${style.id}`;
+                btn.className = `p-2 border text-[11px] rounded-lg flex flex-col items-center justify-center gap-1 text-center transition ${
+                    style.id === selectedStyle 
+                        ? 'border-indigo-500/50 bg-indigo-500/10 text-white' 
+                        : 'border-white/5 bg-gray-900/30 text-gray-400 hover:border-white/10'
+                }`;
+                
+                const iconClass = styleIcons[style.id] || 'fa-wand-magic';
+                btn.innerHTML = `<i class="fa-solid ${iconClass} text-xs"></i><span>${style.name}</span>`;
+                btn.addEventListener('click', () => selectStyle(style.id));
+                styleGrid.appendChild(btn);
+            });
+        }
+
+        function selectStyle(styleId) {
+            selectedStyle = styleId;
+            document.querySelectorAll('#styleGrid button').forEach(btn => {
+                btn.className = 'p-2 border text-[11px] rounded-lg flex flex-col items-center justify-center gap-1 text-center transition border-white/5 bg-gray-900/30 text-gray-400 hover:border-white/10';
+            });
+            const activeBtn = document.getElementById(`style-${styleId}`);
+            if (activeBtn) {
+                activeBtn.className = 'p-2 border text-[11px] rounded-lg flex flex-col items-center justify-center gap-1 text-center transition border-indigo-500/50 bg-indigo-500/10 text-white';
+            }
+        }
+
+        // 10. 遊戲存檔與讀取
+        function saveGame() {
+            localStorage.setItem(`art_tycoon_save_${appId}`, JSON.stringify(gameState));
+        }
+
+        // 11. 渲染圖像模擬與交付系統
+        async function runRenderPipeline() {
+            const prompt = promptInput.value.trim();
+            if (!prompt) {
+                showToast('請輸入描述正向提示詞再進行渲染！', 'error');
+                return;
+            }
+
+            // 算力檢驗
+            const cost = parseInt(vramCostText.innerText);
+            if (gameState.vram < cost) {
+                showToast('工作室顯示卡 VRAM 算力不足！請等候回復或購買新配備。', 'error');
+                return;
+            }
+
+            // 扣除算力
+            gameState.vram -= cost;
+            updateVramUI();
+
+            // 介面鎖定
+            emptyState.classList.add('hidden');
+            resultImage.classList.add('hidden');
+            resultImage.style.opacity = '0';
+            errorState.classList.add('hidden');
+            deliverPanel.classList.add('hidden');
+            generationSummary.classList.add('hidden');
+            loadingState.classList.remove('hidden');
+            generateBtn.disabled = true;
+            generateBtn.classList.add('opacity-50', 'pointer-events-none');
+            renderStatus.innerText = "RENDERING...";
+
+            addLog(`神經繪圖引擎啟動：使用 ${gameState.gpuModel}`);
+
+            // 模擬生圖採樣去噪 (受到顯示卡等級加速影響)
+            const totalSteps = 20;
+            for (let i = 1; i <= totalSteps; i++) {
+                const pct = Math.floor((i / totalSteps) * 100);
+                progressBar.style.width = `${pct}%`;
+                progressPercent.innerText = `${pct}% (${i}/${totalSteps} steps)`;
+                
+                // 去噪階段日誌
+                if (i === 1) loadingStage.innerText = "INIT_LATENT_MATRIX";
+                if (i === 5) loadingStage.innerText = "U-NET_DENOISING_STEPS";
+                if (i === 15) loadingStage.innerText = "DECODING_VAE_FRAME";
+
+                // 受到顯示卡影響的延時
+                await new Promise(resolve => setTimeout(resolve, 80 * gameState.renderSpeed));
+            }
+
+            // 完成渲染：獲取精準比例與種類相契合的 Unsplash 高品質圖片
+            const categoryMatch = querySimulatedArt(prompt, selectedWidth, selectedHeight);
+            
+            try {
+                const base64Img = await getBase64ImageFromUrl(categoryMatch);
+                currentGeneratedImage = base64Img;
+                resultImage.src = base64Img;
+                resultImage.classList.remove('hidden');
+                setTimeout(() => resultImage.style.opacity = "1", 50);
+
+                // 設定當前生圖中繼資料
+                currentMetadata = {
+                    prompt: prompt,
+                    width: selectedWidth,
+                    height: selectedHeight,
+                    style: gameStyles.find(s => s.id === selectedStyle).name,
+                    seed: Math.floor(Math.random() * 999999) + 100000
+                };
+
+                metaModel.innerText = "Imagen 4.0 Pro";
+                metaSeed.innerText = currentMetadata.seed;
+                metaStepsCfg.innerText = `${selectedWidth}x${selectedHeight}`;
+                metaLatency.innerText = `${(1.6 * gameState.renderSpeed).toFixed(1)} 秒`;
+
+                deliverPanel.classList.remove('hidden');
+                generationSummary.classList.remove('hidden');
+                renderStatus.innerText = "FINISHED";
+                addLog(`圖像光柵化完成，解析度為 ${selectedWidth}x${selectedHeight} px。`);
+                showToast("生圖完畢！已成功緩存。");
+            } catch (err) {
+                errorMsg.innerText = "像素格式寫入核心失敗。";
+                errorState.classList.remove('hidden');
+                renderStatus.innerText = "ERROR";
+            }
+
+            loadingState.classList.add('hidden');
+            generateBtn.disabled = false;
+            generateBtn.classList.remove('opacity-50', 'pointer-events-none');
+        }
+
+        // 高度自適應生圖匹配演算法（依據關鍵字精準派發動物、科幻、人物，徹底解決只生風景的問題！）
+        function querySimulatedArt(prompt, w, h) {
+            let baseUrl = "";
+            const p = prompt.toLowerCase();
+            
+            if (p.includes('cat') || p.includes('dog') || p.includes('rabbit') || p.includes('animal') || p.includes('pet') || p.includes('貓') || p.includes('狗') || p.includes('寵物')) {
+                baseUrl = proImageVault.animals[Math.floor(Math.random() * proImageVault.animals.length)];
+            } else if (p.includes('car') || p.includes('vehicle') || p.includes('mech') || p.includes('robot') || p.includes('object') || p.includes('food') || p.includes('cake') || p.includes('車') || p.includes('機器人') || p.includes('蛋糕')) {
+                baseUrl = proImageVault.objects[Math.floor(Math.random() * proImageVault.objects.length)];
+            } else if (p.includes('cyber') || p.includes('space') || p.includes('scifi') || p.includes('futuristic') || p.includes('太空') || p.includes('未來')) {
+                baseUrl = proImageVault.scifi[Math.floor(Math.random() * proImageVault.scifi.length)];
+            } else if (p.includes('building') || p.includes('architecture') || p.includes('house') || p.includes('temple') || p.includes('villa') || p.includes('建築') || p.includes('神殿')) {
+                baseUrl = proImageVault.architecture[Math.floor(Math.random() * proImageVault.architecture.length)];
+            } else if (p.includes('girl') || p.includes('woman') || p.includes('portrait') || p.includes('man') || p.includes('human') || p.includes('人像')) {
+                baseUrl = proImageVault.portrait[Math.floor(Math.random() * proImageVault.portrait.length)];
+            } else if (p.includes('anime') || p.includes('illustration') || p.includes('comic') || p.includes('動漫')) {
+                baseUrl = proImageVault.anime[Math.floor(Math.random() * proImageVault.anime.length)];
+            } else {
+                baseUrl = proImageVault.nature[Math.floor(Math.random() * proImageVault.nature.length)];
+            }
+
+            let sizeParams = `&w=${w}&h=${h}&fit=crop`;
+            const cleanUrl = baseUrl.split('?')[0];
+            return `${cleanUrl}?auto=format${sizeParams}`;
+        }
+
+        // 12. 驗收結算委託交付 (Delivery Evaluation)
+        function deliverCommission() {
+            const mission = gameState.currentMission;
+            if (!mission) return;
+
+            // 1. 契合度評估 - 提示詞關鍵字
+            let promptScore = 15; // 基礎分
+            mission.keywords.forEach(kw => {
+                if (currentMetadata.prompt.toLowerCase().includes(kw.toLowerCase())) {
+                    promptScore += 25;
+                }
+            });
+            promptScore = Math.min(100, promptScore);
+
+            // 2. 解析度精準度
+            const wDiff = Math.abs(currentMetadata.width - mission.reqW);
+            const hDiff = Math.abs(currentMetadata.height - mission.reqH);
+            let resScore = 100 - (wDiff + hDiff) / 10;
+            resScore = Math.max(20, Math.min(100, resScore));
+
+            // 3. 風格吻合度
+            let styleScore = (currentMetadata.style === mission.style) ? 100 : 40;
+
+            // 4. 計算加總平均
+            let finalScore = Math.round((promptScore + resScore + styleScore) / 3);
+
+            // 提示詞助理加成
+            if (gameState.hasAssistant) {
+                finalScore = Math.min(100, finalScore + 15);
+            }
+
+            // 計算獲得報酬與經驗
+            const payCash = Math.round(mission.reward * (finalScore / 100));
+            const gainExp = Math.round(40 * (finalScore / 100));
+
+            // 更新玩家狀態
+            gameState.cash += payCash;
+            gameState.exp += gainExp;
+
+            // 判斷升級
+            if (gameState.exp >= gameState.maxExp) {
+                gameState.exp -= gameState.maxExp;
+                gameState.level += 1;
+                gameState.maxExp = Math.round(gameState.maxExp * 1.5);
+                
+                const rankNames = ["業餘畫室", "新秀工作室", "先鋒創意中心", "神經光影智囊團", "超凡視覺殿堂"];
+                gameState.levelName = rankNames[Math.min(gameState.level - 1, rankNames.length - 1)];
+                addLog(`🎉 恭喜升級！工作室解鎖新稱號：LV.${gameState.level} ${gameState.levelName}`, 'text-indigo-400 font-bold');
+            }
+
+            // 保存委託歷史紀錄
+            const historyItem = {
+                id: crypto.randomUUID(),
+                client: mission.client,
+                prompt: currentMetadata.prompt,
+                resolution: currentMetadata.resolution,
+                style: currentMetadata.style,
+                image: currentGeneratedImage,
+                score: finalScore
+            };
+            gameState.history.unshift(historyItem);
+            if (gameState.history.length > 8) {
+                gameState.history.pop();
+            }
+
+            // 更新報告彈窗 UI
+            reportScore.innerText = `${finalScore}%`;
+            
+            rPrompt.innerHTML = promptScore >= 80 ? '<span class="text-emerald-400">極佳 (Excellent)</span>' : '<span class="text-amber-400">普通 (Fair)</span>';
+            rRes.innerHTML = resScore >= 90 ? '<span class="text-emerald-400">完美比例 (Perfect)</span>' : '<span class="text-rose-400">尺寸不吻合 (Mismatched)</span>';
+            rStyle.innerHTML = styleScore === 100 ? '<span class="text-emerald-400">完全相符 (Matched)</span>' : '<span class="text-rose-400">風格迥異 (Wrong Style)</span>';
+
+            // 客戶反饋文字
+            if (finalScore >= 90) clientReview.innerText = `"${mission.client}：這真是太令人驚嘆了！完美的細節與精準的規格，你就是未來的神級 AI 藝術家！"`;
+            else if (finalScore >= 70) clientReview.innerText = `"${mission.client}：看起來還不錯，雖然高寬尺寸或細節有一點出入，但我接受。謝謝你的付出！"`;
+            else clientReview.innerText = `"${mission.client}：這張圖風格好像有點搞錯了... 而且比例不是很對，不過我就勉強收下吧。"`;
+
+            rCash.innerText = `+$${payCash}`;
+            rExp.innerText = `+${gainExp} XP`;
+
+            saveGame();
+            updatePlayerUI();
+            updateHistoryGrid();
+
+            // 顯示 Modal
+            reportModal.classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        // 更新歷史展示卡
+        function updateHistoryGrid() {
+            historyGrid.innerHTML = '';
+            historyCount.innerText = gameState.history.length;
+
+            if (gameState.history.length === 0) {
+                historyGrid.innerHTML = '<div class="col-span-8 text-center py-6 text-[10px] font-mono text-gray-700">ARCHIVE EMPTY</div>';
+                return;
+            }
+
+            gameState.history.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'group relative aspect-square bg-[#0a0a0f] border border-white/5 rounded overflow-hidden cursor-pointer hover:border-indigo-500/50 transition';
+                card.innerHTML = `
+                    <img class="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition" src="${item.image}" alt="Archived Meta">
+                    <div class="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                        <span class="text-[9px] font-mono text-emerald-400">Score: ${item.score}%</span>
+                    </div>
+                `;
+                card.addEventListener('click', () => {
+                    modalImage.src = item.image;
+                    modalPrompt.innerText = item.prompt;
+                    modalModelText.innerText = "Imagen 4.0 Studio";
+                    modalSeedText.innerText = Math.floor(Math.random() * 99999);
+                    modalRatioText.innerText = `歷史驗收得分: ${item.score}%`;
+                    modalStepsText.innerText = `客戶: ${item.client}`;
+                    
+                    modalDownload.onclick = () => downloadImageFile(item.image, `tycoon-artwork.png`);
+                    modalReuse.onclick = () => {
+                        promptInput.value = item.prompt;
+                        showToast('已復原歷史畫布提示詞！');
+                        detailModal.classList.add('opacity-0', 'pointer-events-none');
+                    };
+
+                    detailModal.classList.remove('opacity-0', 'pointer-events-none');
+                });
+                historyGrid.appendChild(card);
+            });
+        }
+
+        // 下載與導出工具
+        function downloadImageFile(base64Data, filename) {
+            const link = document.createElement('a');
+            link.href = base64Data;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast('已將此渲染圖像導出下載至您的本機裝置！');
+        }
+
+        function downloadImageFromCanvas() {
+            if (currentGeneratedImage) {
+                downloadImageFile(currentGeneratedImage, `tycoon-artwork-${currentMetadata.seed || 'art'}.png`);
+            }
+        }
+
+        // 轉換網址為 Base64 (保證 Canvas 圖片下載相容)
+        async function getBase64ImageFromUrl(imageUrl) {
+            try {
+                const res = await fetch(imageUrl);
+                const blob = await res.blob();
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.addEventListener("load", function () {
+                        resolve(reader.result);
+                    }, false);
+                    reader.onerror = () => reject(new Error("影像光柵化轉換錯誤"));
+                    reader.readAsDataURL(blob);
+                });
+            } catch (err) {
+                return imageUrl;
+            }
+        }
+
+        // 終端輔助日誌輸出
+        function addLog(text, colorClass = 'text-gray-400') {
+            const time = new Date().toLocaleTimeString();
+            const logLine = document.createElement('div');
+            logLine.className = `leading-relaxed ${colorClass}`;
+            logLine.innerHTML = `<span class="text-gray-600">[${time}]</span> &gt; ${text}`;
+            terminalBody.appendChild(logLine);
+            terminalBody.scrollTop = terminalBody.scrollHeight;
+        }
+
+        // 13. 頂部頁面標籤切換
+        tabWorkspace.addEventListener('click', () => {
+            tabWorkspace.className = "text-xs font-bold tracking-wider uppercase text-indigo-400 border-b-2 border-indigo-500 pb-1 px-2";
+            tabShop.className = "text-xs font-bold tracking-wider uppercase text-gray-400 hover:text-white pb-1 px-2 transition";
+            panelWorkspace.classList.remove('hidden');
+            panelShop.classList.add('hidden');
+        });
+
+        tabShop.addEventListener('click', () => {
+            tabShop.className = "text-xs font-bold tracking-wider uppercase text-indigo-400 border-b-2 border-indigo-500 pb-1 px-2";
+            tabWorkspace.className = "text-xs font-bold tracking-wider uppercase text-gray-400 hover:text-white pb-1 px-2 transition";
+            panelShop.classList.remove('hidden');
+            panelWorkspace.classList.add('hidden');
+        });
+
+        // 14. 各大按鈕監聽器與初始化綁定
+        window.onload = function() {
+            initializeGame();
+
+            generateBtn.addEventListener('click', runRenderPipeline);
+            submitMissionBtn.addEventListener('click', deliverCommission);
+            downloadBtnMain.addEventListener('click', downloadImageFromCanvas);
+
+            // 放棄合約並更換
+            skipMissionBtn.addEventListener('click', () => {
+                generateNewMission();
+                showToast('已退回當前合約，更換全新客戶。');
+            });
+
+            // 清除工作台
+            clearPromptBtn.addEventListener('click', () => {
+                promptInput.value = '';
+                showToast('工作台正向提示詞已重置');
+            });
+
+            // 關閉驗收結算 Modal
+            closeReportBtn.addEventListener('click', () => {
+                reportModal.classList.add('opacity-0', 'pointer-events-none');
+                deliverPanel.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+                resultImage.classList.add('hidden');
+                generationSummary.classList.add('hidden');
+                promptInput.value = '';
+                generateNewMission();
+            });
+
+            // 關閉詳細資料 Modal
+            closeModalBtn.addEventListener('click', () => {
+                detailModal.classList.add('opacity-0', 'pointer-events-none');
+            });
+        };
+    </script>
+</body>
+</html>
